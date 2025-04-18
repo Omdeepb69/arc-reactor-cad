@@ -436,3 +436,304 @@ class AIInterface:
                 suggestions = '.'.join(sentences[:2]) + '.'
                 
         return suggestions
+
+
+        def debug_code(self, arduino_code: str) -> Optional[str]:
+        """
+        Analyzes and debugs Arduino code to identify and fix potential issues.
+        
+        Args:
+            arduino_code: The Arduino code to analyze and debug.
+            
+        Returns:
+            A string containing the debugged Arduino code or None if debugging failed.
+        """
+        logging.info("Debugging Arduino code")
+        
+        prompt = f"""
+        As J.A.R.V.I.S. Jr., analyze this Arduino code for issues and bug fixes:
+        
+        ```arduino
+        {arduino_code}
+        ```
+        
+        Identify and fix:
+        - Syntax errors
+        - Logic issues
+        - Potential hardware conflicts
+        - Missing libraries or includes
+        - Inefficient coding patterns
+        
+        Return the fixed code without explanations.
+        """
+        
+        response_json = self._call_gemini_api(prompt)
+        if not response_json:
+            return None
+            
+        parsed_response = parse_llm_response(response_json)
+        if not parsed_response:
+            return arduino_code  # Return original if parsing failed
+            
+        # Extract code from response if needed
+        if isinstance(parsed_response, str):
+            code_match = re.search(r'```(?:arduino|cpp)(.*?)```', parsed_response, re.DOTALL)
+            debugged_code = code_match.group(1).strip() if code_match else parsed_response
+        else:
+            debugged_code = parsed_response.get("code", arduino_code)
+            
+        return debugged_code
+    
+    def optimize_circuit(self, circuit_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Optimizes a circuit configuration to improve efficiency and performance.
+        
+        Args:
+            circuit_data: Dictionary containing the current circuit configuration.
+            
+        Returns:
+            An optimized circuit data structure or None if optimization failed.
+        """
+        logging.info("Optimizing circuit configuration")
+        
+        prompt = f"""
+        As J.A.R.V.I.S. Jr., optimize this Arduino circuit for better efficiency and performance:
+        
+        {json.dumps(circuit_data, indent=2)}
+        
+        Consider:
+        - Component placement optimization
+        - Reducing power consumption
+        - Eliminating redundant components
+        - Better pin allocation
+        - Performance improvements
+        
+        Return the optimized circuit data in the same JSON format.
+        """
+        
+        response_json = self._call_gemini_api(prompt)
+        if not response_json:
+            return None
+            
+        parsed_response = parse_llm_response(response_json)
+        if not parsed_response:
+            return circuit_data  # Return original if parsing failed
+            
+        # Extract circuit data from response
+        if isinstance(parsed_response, str):
+            try:
+                # Try to find JSON in the response
+                json_match = re.search(r'```json(.*?)```', parsed_response, re.DOTALL)
+                if json_match:
+                    optimized_data = json.loads(json_match.group(1).strip())
+                    return optimized_data
+                # If not in code block, try parsing the whole response
+                return json.loads(parsed_response)
+            except json.JSONDecodeError:
+                logging.error("Failed to parse optimized circuit data from response")
+                return circuit_data
+        elif isinstance(parsed_response, dict):
+            return parsed_response
+        
+        return circuit_data
+    
+    def explain_circuit(self, circuit_data: Dict[str, Any]) -> str:
+        """
+        Provides an explanation of the circuit's function and components.
+        
+        Args:
+            circuit_data: Dictionary containing the circuit configuration.
+            
+        Returns:
+            A string explaining how the circuit works.
+        """
+        logging.info("Generating circuit explanation")
+        
+        prompt = f"""
+        As J.A.R.V.I.S. Jr., explain this Arduino circuit in a concise, easy-to-understand way:
+        
+        {json.dumps(circuit_data, indent=2)}
+        
+        Include:
+        - The overall purpose of the circuit
+        - How key components interact
+        - Any interesting features or capabilities
+        - Basic operational principles
+        
+        Keep it clear, brief, and educational - maximum 3-4 short paragraphs.
+        """
+        
+        response_json = self._call_gemini_api(prompt)
+        if not response_json:
+            return "Unable to generate circuit explanation at this time."
+            
+        parsed_response = parse_llm_response(response_json)
+        if not parsed_response:
+            return "This circuit's functionality could not be analyzed in detail."
+            
+        # Clean up the response
+        explanation = parsed_response
+        if isinstance(explanation, str):
+            # Remove any excessive markdown formatting
+            explanation = explanation.replace('#', '').strip()
+                
+        return explanation
+    
+    def generate_schematic(self, circuit_data: Dict[str, Any]) -> Optional[str]:
+        """
+        Generates ASCII art schematic of the circuit for visualization.
+        
+        Args:
+            circuit_data: Dictionary containing the circuit configuration.
+            
+        Returns:
+            A string containing ASCII art representation of the circuit or None if generation failed.
+        """
+        logging.info("Generating ASCII schematic")
+        
+        prompt = f"""
+        As J.A.R.V.I.S. Jr., create a simple ASCII art schematic of this Arduino circuit:
+        
+        {json.dumps(circuit_data, indent=2)}
+        
+        Use standard electronics diagram symbols where possible.
+        Create a clear representation that shows connections between components.
+        Include component labels and pin numbers.
+        Use ASCII characters only (no Unicode).
+        """
+        
+        response_json = self._call_gemini_api(prompt)
+        if not response_json:
+            return None
+            
+        parsed_response = parse_llm_response(response_json)
+        if not parsed_response:
+            return None
+            
+        # Extract ASCII art from response
+        if isinstance(parsed_response, str):
+            # Look for code blocks that might contain the ASCII art
+            art_match = re.search(r'```(?:ascii|text|)(.*?)```', parsed_response, re.DOTALL)
+            schematic = art_match.group(1).strip() if art_match else parsed_response
+        else:
+            schematic = str(parsed_response)
+            
+        return schematic
+    
+    def generate_tutorial(self, circuit_data: Dict[str, Any], arduino_code: str) -> str:
+        """
+        Generates a tutorial for building and using the circuit.
+        
+        Args:
+            circuit_data: Dictionary containing the circuit configuration.
+            arduino_code: The Arduino code for the circuit.
+            
+        Returns:
+            A string containing a step-by-step tutorial.
+        """
+        logging.info("Generating circuit tutorial")
+        
+        prompt = f"""
+        As J.A.R.V.I.S. Jr., create a concise step-by-step tutorial for building and using this Arduino circuit:
+        
+        Circuit Configuration:
+        {json.dumps(circuit_data, indent=2)}
+        
+        Arduino Code:
+        ```arduino
+        {arduino_code}
+        ```
+        
+        Include:
+        1. Required components list
+        2. Assembly instructions (3-5 clear steps)
+        3. How to upload and run the code
+        4. Basic usage instructions
+        5. One troubleshooting tip
+        
+        Keep it practical and beginner-friendly.
+        """
+        
+        response_json = self._call_gemini_api(prompt)
+        if not response_json:
+            return "Unable to generate tutorial at this time."
+            
+        parsed_response = parse_llm_response(response_json)
+        if not parsed_response:
+            return "Tutorial generation failed. Please try again later."
+            
+        return parsed_response
+    
+    def modify_circuit(self, circuit_data: Dict[str, Any], modification_prompt: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        """
+        Modifies a circuit based on the user's description.
+        
+        Args:
+            circuit_data: Dictionary containing the current circuit configuration.
+            modification_prompt: User's description of desired modifications.
+            
+        Returns:
+            A tuple containing:
+            - Modified circuit data structure (dictionary) or None if modification failed
+            - Updated Arduino code string or None if code generation failed
+        """
+        logging.info(f"Modifying circuit based on: '{modification_prompt}'")
+        
+        prompt = f"""
+        As J.A.R.V.I.S. Jr., modify this Arduino circuit according to this request:
+        
+        "{modification_prompt}"
+        
+        Current circuit:
+        {json.dumps(circuit_data, indent=2)}
+        
+        Please respond with a JSON object containing:
+        1. A "circuit_data" object with the modified circuit components and connections
+        2. An "arduino_code" string with updated Arduino code for the modified circuit
+        
+        Maintain the same format for circuit_data but incorporate the requested changes.
+        """
+        
+        response_json = self._call_gemini_api(prompt)
+        if not response_json:
+            return None, None
+            
+        parsed_response = parse_llm_response(response_json)
+        if not parsed_response or not isinstance(parsed_response, dict):
+            logging.error("Failed to parse modification response")
+            return None, None
+            
+        try:
+            if isinstance(parsed_response, str):
+                # Try to extract JSON from the text response
+                circuit_data_match = re.search(r'```json(.*?)```', parsed_response, re.DOTALL)
+                if circuit_data_match:
+                    try:
+                        modified_circuit = json.loads(circuit_data_match.group(1).strip())
+                    except json.JSONDecodeError:
+                        modified_circuit = None
+                else:
+                    modified_circuit = None
+                    
+                # Extract Arduino code
+                code_match = re.search(r'```(?:arduino|cpp)(.*?)```', parsed_response, re.DOTALL)
+                arduino_code = code_match.group(1).strip() if code_match else None
+            else:
+                # Response is already JSON
+                modified_circuit = parsed_response.get("circuit_data")
+                arduino_code = parsed_response.get("arduino_code")
+                
+            if not modified_circuit or not arduino_code:
+                logging.error("AI response missing required modified circuit data or Arduino code")
+                return None, None
+                
+            return modified_circuit, arduino_code
+                
+        except Exception as e:
+            logging.error(f"Error extracting modified circuit data and code: {e}")
+            return None, None
+            
+# --- Helper function for importing in the main module ---
+def create_ai_interface(api_key: Optional[str] = None) -> AIInterface:
+    """Factory function to create and initialize an AIInterface instance."""
+    return AIInterface(api_key)
