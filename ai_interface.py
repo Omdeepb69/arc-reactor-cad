@@ -1,5 +1,4 @@
 # ai_interface.py
-
 """
 Manages all interactions with the AI/LLM API(s). Handles prompt processing,
 image analysis (optional), suggestion generation, and parsing AI responses
@@ -10,6 +9,7 @@ import os
 import base64
 import json
 import logging
+import re
 from typing import Dict, List, Any, Optional, Tuple
 
 # Third-party libraries
@@ -18,15 +18,14 @@ from PIL import Image
 import cv2  # opencv-python
 
 # --- Configuration ---
-
 # Attempt to load API key from environment variables
 # Replace with your preferred configuration method if needed
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-# Use GPT-4o for its multimodal capabilities and strong reasoning
-DEFAULT_LLM_MODEL = "gpt-4o"
-# Use a specific vision model if needed, though gpt-4o handles vision
-VISION_LLM_MODEL = "gpt-4o"
-OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+# Use Gemini 2.5 Pro model
+DEFAULT_LLM_MODEL = "gemini-2.5-pro-exp-03-25"
+# Use same model for vision tasks
+VISION_LLM_MODEL = "gemini-2.5-pro-exp-03-25"
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -51,50 +50,70 @@ def _encode_image_to_base64(image_path: str) -> Optional[str]:
         logging.error(f"Error encoding image {image_path}: {e}")
         return None
 
-def _call_llm_api(messages: List[Dict[str, Any]], model: str = DEFAULT_LLM_MODEL, max_tokens: int = 1500, temperature: float = 0.5) -> Optional[Dict[str, Any]]:
+def _call_llm_api(prompt: str, image_data: Optional[str] = None, model: str = DEFAULT_LLM_MODEL, 
+                     max_tokens: int = 1500, temperature: float = 0.5) -> Optional[Dict[str, Any]]:
     """
-    Sends a request to the OpenAI API and returns the JSON response.
+    Sends a request to the Gemini API and returns the JSON response.
 
     Args:
-        messages: A list of message objects for the chat completion API.
-        model: The model to use (e.g., "gpt-4o").
+        prompt: The text prompt to send to the model.
+        image_data: Optional base64-encoded image data.
+        model: The model to use (e.g., "gemini-2.5-pro-exp-03-25").
         max_tokens: The maximum number of tokens to generate.
         temperature: Controls randomness (0.0 to 1.0).
 
     Returns:
         The JSON response from the API or None if an error occurs.
     """
-    if not OPENAI_API_KEY:
-        logging.error("OpenAI API key not found. Set the OPENAI_API_KEY environment variable.")
+    if not GEMINI_API_KEY:
+        logging.error("Gemini API key not found. Set the GEMINI_API_KEY environment variable.")
         return None
 
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {OPENAI_API_KEY}"
+        "x-goog-api-key": GEMINI_API_KEY
     }
 
+    # Construct the parts array based on whether we're sending an image
+    parts = [{"text": prompt}]
+    
+    if image_data:
+        # This is a multimodal request with both text and image
+        api_url = f"{GEMINI_API_URL}/{model}:generateContent"
+        parts.append({
+            "inline_data": {
+                "mime_type": "image/jpeg",
+                "data": image_data
+            }
+        })
+    else:
+        # This is a text-only request
+        api_url = f"{GEMINI_API_URL}/{model}:generateContent"
+    
     payload = {
-        "model": model,
-        "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-        # Request JSON output where applicable
-        # Note: This works best with newer models like gpt-4o and gpt-4-turbo
-        # "response_format": {"type": "json_object"} # Enable if consistently needing JSON
+        "contents": [{
+            "parts": parts
+        }],
+        "generationConfig": {
+            "temperature": temperature,
+            "maxOutputTokens": max_tokens,
+            # For more consistent JSON responses
+            "responseMimeType": "application/json" if prompt.lower().find("json") >= 0 else "text/plain"
+        }
     }
 
     try:
-        response = requests.post(OPENAI_API_URL, headers=headers, json=payload, timeout=60) # Increased timeout
+        response = requests.post(api_url, headers=headers, json=payload, timeout=60)  # Increased timeout
         response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
         return response.json()
     except requests.exceptions.RequestException as e:
-        logging.error(f"API request failed: {e}")
+        logging.error(f"Gemini API request failed: {e}")
         if hasattr(e, 'response') and e.response is not None:
             logging.error(f"API Response Status Code: {e.response.status_code}")
             logging.error(f"API Response Body: {e.response.text}")
         return None
     except Exception as e:
-        logging.error(f"An unexpected error occurred during API call: {e}")
+        logging.error(f"An unexpected error occurred during Gemini API call: {e}")
         return None
 
 def parse_llm_response(response_json: Optional[Dict[str, Any]], expected_keys: Optional[List[str]] = None) -> Optional[Any]:
