@@ -1,0 +1,5 @@
+pygame (for UI and basic visualization/simulation)
+requests (or specific library like 'openai' for LLM API calls)
+Pillow (PIL) (for image handling)
+OpenCV ('opencv-python') (optional, for image analysis feature)
+Possibly a diagramming library like 'schemdraw' (for better circuit visualization if Pygame drawing becomes too complex)
