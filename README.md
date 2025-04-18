@@ -19,7 +19,7 @@ Level up your skills by mixing LLMs with UI dev (shoutout Pygame!), basic electr
 ## TECHNOLOGIES USED 💻
 
 *   `pygame` (UI, basic viz/sim)
-*   `requests` / `openai` (Talking to the big AI brains)
+*   `requests` / `Gemini` (Talking to the big AI brains)
 *   `Pillow` (PIL) (Image stuff)
 *   `opencv-python` (Optional, for analyzing circuit pics)
 *   `schemdraw` (Maybe later, if Pygame drawing gets too cray)
