@@ -1,186 +1,355 @@
-```python
 # -*- coding: utf-8 -*-
 """
 code_generator.py
 
-Generates functional Arduino (.ino) code based on structured circuit data
-for the ARC Reactor CAD project.
+Generates functional Arduino (.ino) code using the Gemini API
+based on user prompts or circuit descriptions for the ARC Reactor CAD project.
 """
 
 import logging
-from typing import List, Dict, Any, Optional, Set
+import os
+import json
+from typing import List, Dict, Any, Optional, Tuple
+import requests
 
 # --- Placeholder for circuit.py structures ---
 # In a real project, these would be imported from circuit.py
-# from circuit import Component, Circuit
-
-# Using placeholder classes here to make the file self-contained and runnable,
-# assuming circuit.py might define similar structures.
 class Component:
     """Represents a single component in the circuit."""
     def __init__(self, id: str, type: str, properties: Optional[Dict[str, Any]] = None, connections: Optional[Dict[str, Any]] = None):
-        """
-        Initializes a Component.
-
-        Args:
-            id (str): A unique identifier for the component.
-            type (str): The type of the component (e.g., 'LED', 'Resistor', 'Button', 'ArduinoUno'). Case-insensitive.
-            properties (Optional[Dict[str, Any]]): Component-specific properties (e.g., {'color': 'red'}).
-            connections (Optional[Dict[str, Any]]): Mapping of component pin names to Arduino pins or other connections.
-                                                    e.g., {'anode': 13, 'cathode': 'GND'}
-                                                    e.g., {'pin1': 2, 'pin2': 'GND'}
-                                                    e.g., {'wiper': 'A0', 'pin1': '5V', 'pin2': 'GND'}
-                                                    e.g., {'signal': 9}
-        """
         self.id = id
         self.type = type.lower() # Normalize type to lowercase
         self.properties = properties or {}
-        # Ensure connections values are processed consistently (e.g., pin numbers as strings)
         self.connections = {k: str(v) for k, v in (connections or {}).items()}
 
 class Circuit:
     """Represents the entire circuit design."""
     def __init__(self, components: Optional[List[Component]] = None):
-        """
-        Initializes a Circuit.
-
-        Args:
-            components (Optional[List[Component]]): A list of components in the circuit.
-        """
         self.components = components or []
-
-# --- End Placeholder ---
-
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s')
 
-# --- Constants ---
-PIN_MODES = {
-    "OUTPUT": "OUTPUT",
-    "INPUT": "INPUT",
-    "INPUT_PULLUP": "INPUT_PULLUP"
-}
-ARDUINO_PINS_ANALOG = {f"A{i}" for i in range(6)} # Typical Uno analog pins
-ARDUINO_PINS_DIGITAL = {str(i) for i in range(14)} # Typical Uno digital pins
-RESERVED_PINS = {'0', '1'} # Usually used for Serial RX/TX
-
-# --- Helper Functions ---
-
-def _sanitize_id_for_variable(component_id: str) -> str:
-    """Creates a more C++ variable-friendly name from a component ID."""
-    # Remove non-alphanumeric characters, ensure it doesn't start with a number
-    sanitized = ''.join(filter(str.isalnum, component_id))
-    if not sanitized:
-        return "comp" # Default if ID is weird
-    if sanitized[0].isdigit():
-        return f"id_{sanitized}"
-    return sanitized
-
-def _get_arduino_pin(component: Component, component_pin_name: str) -> Optional[str]:
+class AICodeGenerator:
     """
-    Extracts and validates the Arduino pin number/name connected to a component's specific pin.
-    Normalizes pin representations (e.g., 'D13' -> '13').
-
-    Args:
-        component (Component): The component object.
-        component_pin_name (str): The name of the component's pin (e.g., 'anode', 'pin1', 'wiper').
-
-    Returns:
-        Optional[str]: The validated and normalized Arduino pin name (e.g., '13', 'A0') or None if invalid/not found.
+    Uses Gemini API to generate Arduino code based on circuit descriptions or user prompts.
     """
-    connection = component.connections.get(component_pin_name)
-    if connection is None:
-        logging.debug(f"Component '{component.id}' ({component.type}): No connection found for pin '{component_pin_name}'.")
-        return None
+    def __init__(self, api_key=None):
+        """
+        Initialize the AI Code Generator.
+        
+        Args:
+            api_key (str, optional): API key for Gemini. If not provided, looks for GEMINI_API_KEY environment variable.
+        """
+        self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
+        if not self.api_key:
+            logging.warning("No API key provided for Gemini. Code generation may be limited.")
+        self.api_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro-exp-03-25:generateContent"
+    
+    def _create_circuit_prompt(self, circuit: Circuit) -> str:
+        """
+        Create a prompt for Gemini based on the circuit data.
+        
+        Args:
+            circuit (Circuit): The circuit object containing components and connections
+            
+        Returns:
+            str: A formatted prompt describing the circuit
+        """
+        prompt = "Generate complete Arduino code for a circuit with the following components:\n\n"
+        
+        for component in circuit.components:
+            prompt += f"Component ID: {component.id}\n"
+            prompt += f"Type: {component.type}\n"
+            
+            if component.properties:
+                prompt += "Properties:\n"
+                for key, value in component.properties.items():
+                    prompt += f"- {key}: {value}\n"
+            
+            if component.connections:
+                prompt += "Connections:\n"
+                for pin_name, connection in component.connections.items():
+                    prompt += f"- {pin_name} connected to {connection}\n"
+            
+            prompt += "\n"
+        
+        prompt += """
+Please generate complete, functional Arduino code (.ino) for this circuit. Include:
+1. Appropriate #include statements for any required libraries
+2. Pin definitions as constants
+3. Any necessary global variables
+4. A proper setup() function with pinMode configurations
+5. A loop() function with basic functionality for the components
+6. Simple logic to demonstrate component interactions where appropriate
 
-    pin_str = str(connection).strip().upper()
+Make the code clean, well-commented, and ready to compile and upload to an Arduino.
+"""
+        return prompt
+    
+    def generate_from_circuit(self, circuit: Circuit) -> Tuple[str, bool]:
+        """
+        Generate Arduino code from the circuit object using Gemini.
+        
+        Args:
+            circuit (Circuit): The circuit object
+            
+        Returns:
+            Tuple[str, bool]: The generated code and a success flag
+        """
+        if not self.api_key:
+            return "// Error: No API key provided for AI code generation.\n\nvoid setup() {}\nvoid loop() {}", False
+        
+        if not circuit or not circuit.components:
+            return "// Error: No circuit components provided.\n\nvoid setup() {}\nvoid loop() {}", False
+        
+        try:
+            prompt = self._create_circuit_prompt(circuit)
+            return self._call_gemini_api(prompt)
+        except Exception as e:
+            logging.error(f"Error in generate_from_circuit: {e}", exc_info=True)
+            return f"// Error generating Arduino code: {str(e)}\n\nvoid setup() {{\n}}\nvoid loop() {{\n}}", False
+    
+    def generate_from_prompt(self, user_prompt: str) -> Tuple[str, bool]:
+        """
+        Generate Arduino code directly from a user prompt using Gemini.
+        
+        Args:
+            user_prompt (str): The user's prompt describing what they want
+            
+        Returns:
+            Tuple[str, bool]: The generated code and a success flag
+        """
+        if not self.api_key:
+            return "// Error: No API key provided for AI code generation.\n\nvoid setup() {}\nvoid loop() {}", False
+        
+        try:
+            # Format the user prompt to ensure we get Arduino code
+            formatted_prompt = f"""
+Based on this request: "{user_prompt}"
 
-    # Normalize 'D' prefix for digital pins
-    if pin_str.startswith('D') and pin_str[1:].isdigit():
-        pin_str = pin_str[1:]
+Generate complete, functional Arduino code (.ino). Include:
+1. Appropriate #include statements for any required libraries
+2. Pin definitions as constants
+3. Any necessary global variables
+4. A proper setup() function with pinMode configurations
+5. A loop() function with working functionality
+6. Clear comments explaining the code
 
-    # Validate against known Arduino pins
-    if pin_str in ARDUINO_PINS_ANALOG or pin_str in ARDUINO_PINS_DIGITAL:
-        # Check for RX/TX usage warning
-        if pin_str in RESERVED_PINS:
-             logging.warning(f"Component '{component.id}' ({component.type}) uses pin {pin_str}, which is often reserved for Serial communication (RX/TX).")
-        return pin_str
-    else:
-        # Allow common power/ground connections without logging warnings
-        if pin_str not in ('GND', '5V', '3.3V', 'VIN'):
-             logging.warning(f"Component '{component.id}' ({component.type}): Connection '{connection}' for pin '{component_pin_name}' is not a standard Arduino Uno pin (0-13, A0-A5). Treating as non-pin connection.")
-        return None # Not a direct connection to an Arduino I/O pin
-
-# --- Core Code Generation Logic ---
-
-def generate_arduino_code(circuit_data: Circuit) -> str:
-    """
-    Generates Arduino (.ino) code based on the structured circuit data.
-
-    Attempts to create basic functional code for common components like LEDs,
-    buttons, potentiometers, and servos. Includes setup and simple loop logic.
-
-    Args:
-        circuit_data: A Circuit object containing components and their connections.
-
-    Returns:
-        A string containing the generated Arduino code. Returns a basic template
-        with an error comment if generation fails or input is invalid.
-    """
-    if not isinstance(circuit_data, Circuit) or not circuit_data.components:
-        logging.warning("generate_arduino_code called with empty or invalid circuit data.")
-        return "// ARC Reactor CAD: No valid circuit data provided.\n\nvoid setup() {\n  // Setup code here\n}\n\nvoid loop() {\n  // Main logic here\n}\n"
-
-    includes: Set[str] = set()
-    pin_definitions: List[str] = []
-    global_vars: List[str] = []
-    setup_code: List[str] = []
-    loop_code: List[str] = []
-    processed_pins: Dict[str, str] = {} # Maps Arduino Pin -> C++ Variable Name
-    needs_serial: bool = False
-
-    try:
-        # --- Component Processing ---
-        arduino_present = any(comp.type == 'arduinouno' for comp in circuit_data.components)
-        if not arduino_present:
-            logging.warning("No 'ArduinoUno' component found in the circuit data. Code generation might be incomplete.")
-            # Proceed anyway, assuming pins connect to *some* Arduino implicitly
-
-        for component in circuit_data.components:
-            comp_type = component.type
-            comp_id = component.id
-            sanitized_id = _sanitize_id_for_variable(comp_id)
-
-            logging.info(f"Processing component: ID='{comp_id}', Type='{comp_type}'")
-
-            # --- LED ---
-            if comp_type == 'led':
-                pin = _get_arduino_pin(component, 'anode') # Assume anode connects to Arduino pin for control
-                if pin:
-                    if pin in processed_pins:
-                        var_name = processed_pins[pin]
-                        logging.info(f"LED '{comp_id}' reusing pin {pin} (variable: {var_name}).")
-                    else:
-                        var_name = f"led_{sanitized_id}_Pin"
-                        pin_definitions.append(f"const int {var_name} = {pin}; // LED '{comp_id}'")
-                        processed_pins[pin] = var_name
-                    setup_code.append(f"  pinMode({var_name}, OUTPUT);")
-                    # Basic blink example
-                    loop_code.append(f"  // Blink LED '{comp_id}'")
-                    loop_code.append(f"  digitalWrite({var_name}, HIGH);")
-                    loop_code.append(f"  delay(500);")
-                    loop_code.append(f"  digitalWrite({var_name}, LOW);")
-                    loop_code.append(f"  delay(500);")
-                    loop_code.append("") # Add blank line for readability
+Make the code clean, well-commented, and ready to compile and upload to an Arduino.
+"""
+            return self._call_gemini_api(formatted_prompt)
+        except Exception as e:
+            logging.error(f"Error in generate_from_prompt: {e}", exc_info=True)
+            return f"// Error generating Arduino code: {str(e)}\n\nvoid setup() {{\n}}\nvoid loop() {{\n}}", False
+    
+    def _call_gemini_api(self, prompt: str) -> Tuple[str, bool]:
+        """
+        Call the Gemini API with the given prompt.
+        
+        Args:
+            prompt (str): The prompt to send to Gemini
+            
+        Returns:
+            Tuple[str, bool]: The generated code and a success flag
+        """
+        headers = {
+            "Content-Type": "application/json",
+        }
+        
+        # Add API key as a URL parameter
+        url = f"{self.api_url}?key={self.api_key}"
+        
+        payload = {
+            "contents": [{
+                "parts": [{
+                    "text": prompt
+                }]
+            }],
+            "generationConfig": {
+                "temperature": 0.2,
+                "topK": 40,
+                "topP": 0.95,
+                "maxOutputTokens": 8192,
+                "responseMimeType": "text/plain"
+            }
+        }
+        
+        try:
+            response = requests.post(url, headers=headers, json=payload)
+            response.raise_for_status()  # Raise exception for HTTP errors
+            
+            result = response.json()
+            
+            # Extract code from response
+            if "candidates" in result and result["candidates"]:
+                content = result["candidates"][0].get("content", {})
+                parts = content.get("parts", [])
+                
+                # Extract code from parts
+                text = ""
+                for part in parts:
+                    if "text" in part:
+                        text += part["text"]
+                
+                # Try to extract just the Arduino code if there's explanatory text
+                # Look for code blocks in markdown format ```arduino ... ```
+                import re
+                code_blocks = re.findall(r"```(?:arduino|cpp|ino)?\s*(.*?)```", text, re.DOTALL)
+                
+                if code_blocks:
+                    # Use the first code block found
+                    return code_blocks[0].strip(), True
                 else:
-                    logging.warning(f"LED component '{comp_id}' has no valid Arduino pin connection defined for 'anode'. Skipping code generation for it.")
+                    # Return the whole response if no code blocks found
+                    return text.strip(), True
+            
+            # If we couldn't parse the response
+            logging.error(f"Unexpected API response format: {result}")
+            return "// Error: Unexpected API response format\n\nvoid setup() {}\nvoid loop() {}", False
+            
+        except requests.exceptions.RequestException as e:
+            logging.error(f"API request error: {e}", exc_info=True)
+            return f"// Error calling Gemini API: {str(e)}\n\nvoid setup() {{\n}}\nvoid loop() {{\n}}", False
 
-            # --- Button ---
-            elif comp_type == 'button':
-                # Assume pin1 connects to Arduino, pin2 to GND (use INPUT_PULLUP) or 5V (use INPUT)
-                pin = _get_arduino_pin(component, 'pin1')
-                pin2_connection = component.connections.get('pin2', '').upper()
 
-                if pin:
-                    mode = PIN_MODES["INPUT_PULLUP"] if pin2_connection == 'GND'
+class CodeGenerator:
+    """
+    Wrapper class that exposes the code generation functionality as expected by main.py.
+    Handles both code generation and saving to disk.
+    """
+    
+    def __init__(self, api_key=None):
+        """
+        Initialize the CodeGenerator.
+        
+        Args:
+            api_key (str, optional): API key for Gemini. If not provided, looks for GEMINI_API_KEY environment variable.
+        """
+        logging.info("Code Generator initialized")
+        self.ai_generator = AICodeGenerator(api_key)
+    
+    def generate_code(self, circuit_data) -> str:
+        """
+        Generate Arduino code from the given circuit data using AI.
+        
+        Args:
+            circuit_data: Circuit object or data structure containing component information
+            
+        Returns:
+            String containing the generated Arduino code
+        """
+        if not circuit_data:
+            logging.warning("generate_code called with empty circuit data")
+            return "// No circuit data provided.\n\nvoid setup() {}\n\nvoid loop() {}"
+        
+        try:
+            # Check if we received a Circuit object or a data dict
+            if isinstance(circuit_data, Circuit):
+                code, success = self.ai_generator.generate_from_circuit(circuit_data)
+                return code
+            elif isinstance(circuit_data, dict):
+                # Convert dict to Circuit object if needed
+                if 'components' in circuit_data:
+                    circuit = Circuit()
+                    components = circuit_data.get('components', [])
+                    
+                    # If components is a list of dicts, convert to Component objects
+                    if components and isinstance(components[0], dict):
+                        circuit.components = [
+                            Component(
+                                id=comp.get('id', f"comp_{i}"),
+                                type=comp.get('type', 'unknown'),
+                                properties=comp.get('properties', {}),
+                                connections=comp.get('connections', {})
+                            )
+                            for i, comp in enumerate(components)
+                        ]
+                    else:
+                        # Components already as Component objects
+                        circuit.components = components
+                    
+                    code, success = self.ai_generator.generate_from_circuit(circuit)
+                    return code
+                
+                # If it's a prompt or description in dict format
+                elif 'prompt' in circuit_data:
+                    code, success = self.ai_generator.generate_from_prompt(circuit_data['prompt'])
+                    return code
+                else:
+                    logging.error("Invalid circuit data format provided to generate_code")
+                    return "// Error: Invalid circuit data format\n\nvoid setup() {}\n\nvoid loop() {}"
+            elif isinstance(circuit_data, str):
+                # Treat as a direct prompt
+                code, success = self.ai_generator.generate_from_prompt(circuit_data)
+                return code
+            else:
+                logging.error(f"Unsupported circuit_data type: {type(circuit_data)}")
+                return "// Error: Unsupported circuit data type\n\nvoid setup() {}\n\nvoid loop() {}"
+        except Exception as e:
+            logging.error(f"Error in generate_code: {e}", exc_info=True)
+            return f"// Error generating Arduino code: {str(e)}\n\nvoid setup() {{\n}}\nvoid loop() {{\n}}"
+    
+    def save_code(self, code: str, filename: str = "output.ino") -> bool:
+        """
+        Save the generated code to a file.
+        
+        Args:
+            code: String containing the Arduino code
+            filename: Path where the code should be saved
+            
+        Returns:
+            bool: True if saving succeeded, False otherwise
+        """
+        try:
+            with open(filename, 'w') as file:
+                file.write(code)
+            logging.info(f"Successfully saved Arduino code to '{filename}'")
+            return True
+        except Exception as e:
+            logging.error(f"Failed to save Arduino code to '{filename}': {e}", exc_info=True)
+            return False
+
+
+if __name__ == "__main__":
+    # Simple test case for the AI code generator
+    logging.info("Testing AI code_generator.py...")
+    
+    # Get API key from environment variable
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        logging.warning("No GEMINI_API_KEY environment variable found. Test will not be able to connect to API.")
+    
+    # Create a simple test circuit with an LED and button
+    test_circuit = Circuit([
+        Component(
+            id="led1",
+            type="LED",
+            properties={"color": "red"},
+            connections={"anode": "13", "cathode": "GND"}
+        ),
+        Component(
+            id="button1",
+            type="Button",
+            connections={"pin1": "2", "pin2": "GND"}
+        )
+    ])
+    
+    # Create the generator
+    generator = CodeGenerator(api_key)
+    
+    # Test circuit-based generation
+    code = generator.generate_code(test_circuit)
+    print("\nGenerated Arduino Code from Circuit:")
+    print("-" * 50)
+    print(code)
+    print("-" * 50)
+    
+    # Test prompt-based generation
+    prompt_code = generator.generate_code("Create Arduino code for a circuit with one LED on pin 13 and one button on pin 2 that toggles the LED when pressed.")
+    print("\nGenerated Arduino Code from Prompt:")
+    print("-" * 50)
+    print(prompt_code)
+    print("-" * 50)
+    
+    logging.info("Code generation test completed")
