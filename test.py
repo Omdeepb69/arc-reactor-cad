@@ -25,7 +25,7 @@ BLUE = (0, 0, 255)
 YELLOW = (255, 255, 0)
 
 # Set up your Gemini API key
-GEMINI_API_KEY = "YOUR_API_KEY_HERE"  # Replace with your actual API key
+GEMINI_API_KEY = "AIzaSyAcBR0YNwnW-nnKk1na7jt2_II7p3xojvM"  # Replace with your actual API key
 genai.configure(api_key=GEMINI_API_KEY)
 
 class Component:

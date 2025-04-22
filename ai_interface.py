@@ -457,51 +457,51 @@ class AIInterface:
         return suggestions
 
 
-        def debug_code(self, arduino_code: str) -> Optional[str]:
-        """
-        Analyzes and debugs Arduino code to identify and fix potential issues.
+    def debug_code(self, arduino_code: str) -> Optional[str]:
+           """
+           Analyzes and debugs Arduino code to identify and fix potential issues.
         
-        Args:
-            arduino_code: The Arduino code to analyze and debug.
+           Args:
+              arduino_code: The Arduino code to analyze and debug.
             
-        Returns:
-            A string containing the debugged Arduino code or None if debugging failed.
-        """
-        logging.info("Debugging Arduino code")
+            Returns:
+              A string containing the debugged Arduino code or None if debugging failed.
+           """
+           logging.info("Debugging Arduino code")
         
-        prompt = f"""
-        As J.A.R.V.I.S. Jr., analyze this Arduino code for issues and bug fixes:
+           prompt = f"""
+           As J.A.R.V.I.S. Jr., analyze this Arduino code for issues and bug fixes:
         
-        ```arduino
-        {arduino_code}
-        ```
+           ```arduino
+           {arduino_code}
+           ```
         
-        Identify and fix:
-        - Syntax errors
-        - Logic issues
-        - Potential hardware conflicts
-        - Missing libraries or includes
-        - Inefficient coding patterns
+           Identify and fix:
+           - Syntax errors
+           - Logic issues
+           - Potential hardware conflicts
+           - Missing libraries or includes
+           - Inefficient coding patterns
         
-        Return the fixed code without explanations.
-        """
+           Return the fixed code without explanations.
+           """
         
-        response_json = self._call_gemini_api(prompt)
-        if not response_json:
-            return None
+           response_json = self._call_gemini_api(prompt)
+           if not response_json:
+              return None
             
-        parsed_response = parse_llm_response(response_json)
-        if not parsed_response:
-            return arduino_code  # Return original if parsing failed
+           parsed_response = parse_llm_response(response_json)
+           if not parsed_response:
+               return arduino_code  # Return original if parsing failed
             
-        # Extract code from response if needed
-        if isinstance(parsed_response, str):
-            code_match = re.search(r'```(?:arduino|cpp)(.*?)```', parsed_response, re.DOTALL)
-            debugged_code = code_match.group(1).strip() if code_match else parsed_response
-        else:
-            debugged_code = parsed_response.get("code", arduino_code)
+           # Extract code from response if needed
+           if isinstance(parsed_response, str):
+               code_match = re.search(r'```(?:arduino|cpp)(.*?)```', parsed_response, re.DOTALL)
+               debugged_code = code_match.group(1).strip() if code_match else parsed_response
+           else:
+               debugged_code = parsed_response.get("code", arduino_code)
             
-        return debugged_code
+           return debugged_code
     
     def optimize_circuit(self, circuit_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
